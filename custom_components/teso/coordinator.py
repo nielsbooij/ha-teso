@@ -188,11 +188,11 @@ class TesoCoordinator(DataUpdateCoordinator):
             time_str = time_el.text.strip().split(",")[0].strip()
 
             try:
-            clean_date = date_str.split()[-1] if " " in date_str else date_str
-            clean_time = time_str.replace(" om ", "").strip()
-            trip_dt = datetime.strptime(
-                f"{clean_date} {clean_time}", "%d-%m-%Y %H:%M"
-            )
+                clean_date = date_str.split()[-1] if " " in date_str else date_str
+                clean_time = time_str.replace(" om ", "").strip()
+                trip_dt = datetime.strptime(
+                    f"{clean_date} {clean_time}", "%d-%m-%Y %H:%M"
+                )
                 last_trips[card_number] = trip_dt
             except ValueError:
                 _LOGGER.warning("Kon datum niet verwerken: %s %s", date_str, time_str)
