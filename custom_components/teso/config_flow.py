@@ -34,7 +34,6 @@ async def validate_credentials(username: str, password: str) -> bool:
         timeout=timeout,
         cookie_jar=aiohttp.CookieJar(),
     ) as session:
-        # Haal CSRF token op
         async with session.get(LOGIN_URL) as resp:
             html = await resp.text()
 
@@ -44,7 +43,6 @@ async def validate_credentials(username: str, password: str) -> bool:
             return False
         csrf_token = csrf_input["value"]
 
-        # Probeer in te loggen
         login_data = {
             "csrfmiddlewaretoken": csrf_token,
             "username": username,

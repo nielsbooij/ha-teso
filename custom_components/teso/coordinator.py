@@ -1,9 +1,8 @@
 """Data coordinator voor de TESO integratie."""
 from __future__ import annotations
 
-import asyncio
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import aiohttp
 from bs4 import BeautifulSoup
@@ -19,6 +18,7 @@ _LOGGER = logging.getLogger(__name__)
 BASE_URL = "https://www.teso.nl"
 LOGIN_URL = f"{BASE_URL}/my-teso/login/"
 PASSES_URL = f"{BASE_URL}/my-teso/my-passes/"
+TRIPS_URL = f"{BASE_URL}/my-teso/trips/"
 
 UPDATE_INTERVAL = timedelta(hours=1)
 
@@ -41,23 +41,21 @@ class TesoCoordinator(DataUpdateCoordinator):
     async def _async_update_data(self) -> list[dict]:
         """Haal data op van het TESO portaal."""
         try:
-            return await self._fetch_passes()
+            return await self._fetch_data()
         except ConfigEntryAuthFailed:
             raise
         except Exception as err:
             raise UpdateFailed(f"Fout bij ophalen TESO data: {err}") from err
 
-    async def _fetch_passes(self) -> list[dict]:
-        """Login en haal pasgegevens op."""
+    async def _fetch_data(self) -> list[dict]:
+        """Login en haal alle gegevens op."""
         timeout = aiohttp.ClientTimeout(total=30)
-        connector = aiohttp.TCPConnector(ssl=True)
 
         async with aiohttp.ClientSession(
-            connector=connector,
             timeout=timeout,
             cookie_jar=aiohttp.CookieJar(),
         ) as session:
-            # Stap 1: haal de loginpagina op om het CSRF token te krijgen
+            # Stap 1: haal CSRF token op
             async with session.get(LOGIN_URL) as resp:
                 if resp.status != 200:
                     raise UpdateFailed(f"Kon loginpagina niet ophalen: {resp.status}")
@@ -83,26 +81,36 @@ class TesoCoordinator(DataUpdateCoordinator):
             async with session.post(
                 LOGIN_URL, data=login_data, headers=headers, allow_redirects=True
             ) as resp:
-                if resp.status not in (200, 302):
-                    raise UpdateFailed(f"Login mislukt: {resp.status}")
-
-                # Controleer of we zijn ingelogd door te kijken of we op my-teso zijn
                 final_url = str(resp.url)
                 if "login" in final_url:
                     raise ConfigEntryAuthFailed(
                         "Inloggen mislukt: controleer gebruikersnaam en wachtwoord"
                     )
 
-            # Stap 3: haal de passenpagina op
+            # Stap 3: haal passenpagina op
             async with session.get(PASSES_URL) as resp:
                 if resp.status != 200:
                     raise UpdateFailed(f"Kon passenpagina niet ophalen: {resp.status}")
-                html = await resp.text()
+                passes_html = await resp.text()
 
-            return self._parse_passes(html)
+            # Stap 4: haal overtochten pagina op
+            async with session.get(TRIPS_URL) as resp:
+                if resp.status != 200:
+                    raise UpdateFailed(f"Kon overtochten pagina niet ophalen: {resp.status}")
+                trips_html = await resp.text()
+
+            passes = self._parse_passes(passes_html)
+            trips = self._parse_trips(trips_html)
+
+            # Koppel de laatste overtocht aan de juiste pas
+            for pass_data in passes:
+                card_number = pass_data.get("card_number", "")
+                pass_data["last_trip"] = trips.get(card_number)
+
+            return passes
 
     def _parse_passes(self, html: str) -> list[dict]:
-        """Parseer de HTML en extraheer pasgegevens."""
+        """Parseer de HTML van de passenpagina."""
         soup = BeautifulSoup(html, "html.parser")
         passes = []
 
@@ -114,17 +122,17 @@ class TesoCoordinator(DataUpdateCoordinator):
             if card_number_el:
                 pass_data["card_number"] = card_number_el.text.strip()
 
-            # Kenteken (kan leeg zijn voor e-tickets)
+            # Kenteken
             plate_el = card.find("span", class_="uppercase")
             if plate_el:
                 pass_data["license_plate"] = plate_el.text.strip()
 
-            # Voertuigomschrijving (bijv. "Volvo")
+            # Voertuig
             personal_el = card.find("p", class_="personalinfo")
             if personal_el:
                 pass_data["vehicle"] = personal_el.text.strip()
 
-            # Producten op de pas
+            # Producten
             products = []
             for row in card.find_all("div", class_="table-row-product"):
                 product = {}
@@ -145,8 +153,44 @@ class TesoCoordinator(DataUpdateCoordinator):
 
             pass_data["products"] = products
 
-            if pass_data.get("products"):
+            if pass_data.get("card_number"):
                 passes.append(pass_data)
 
-        _LOGGER.debug("TESO: gevonden passen: %s", passes)
+        _LOGGER.debug("TESO passen: %s", passes)
         return passes
+
+    def _parse_trips(self, html: str) -> dict[str, datetime]:
+        """Parseer de overtochten pagina en geef de laatste overtocht per pasnummer terug."""
+        soup = BeautifulSoup(html, "html.parser")
+        last_trips: dict[str, datetime] = {}
+
+        dates = soup.find_all("p", class_="checkin-date")
+        times = soup.find_all("p", class_="checkin-time")
+        card_types = soup.find_all("p", class_="checkin-type")
+
+        for date_el, time_el, card_el in zip(dates, times, card_types):
+            card_text = card_el.text.strip()
+
+            # Haal pasnummer op uit "Pas: 2514921229"
+            if "Pas:" in card_text:
+                card_number = card_text.replace("Pas:", "").strip()
+            else:
+                continue
+
+            # Alleen de eerste (meest recente) per pasnummer
+            if card_number in last_trips:
+                continue
+
+            date_str = date_el.text.strip()
+            time_str = time_el.text.strip().split(",")[0].strip()
+
+            try:
+                trip_dt = datetime.strptime(
+                    f"{date_str} {time_str}", "%d-%m-%Y %H:%M"
+                )
+                last_trips[card_number] = trip_dt
+            except ValueError:
+                _LOGGER.warning("Kon datum niet verwerken: %s %s", date_str, time_str)
+
+        _LOGGER.debug("TESO laatste overtochten: %s", last_trips)
+        return last_trips
