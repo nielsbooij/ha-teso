@@ -169,11 +169,14 @@ class TesoCoordinator(DataUpdateCoordinator):
         card_types = soup.find_all("p", class_="checkin-type")
 
         for date_el, time_el, card_el in zip(dates, times, card_types):
-            card_text = card_el.text.strip()
+            card_text = card_el.get_text(separator=" ", strip=True)
 
-            # Haal pasnummer op uit "Pas: 2514921229"
             if "Pas:" in card_text:
-                card_number = card_text.replace("Pas:", "").strip()
+                parts = card_text.split("Pas:")
+                if len(parts) > 1:
+                    card_number = parts[1].strip().split()[0]
+                else:
+                    continue
             else:
                 continue
 
