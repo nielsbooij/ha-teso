@@ -188,8 +188,9 @@ class TesoCoordinator(DataUpdateCoordinator):
             time_str = time_el.text.strip().split(",")[0].strip()
 
             try:
-                clean_date = date_str.split()[-1] if " " in date_str else date_str
-                clean_time = time_str.replace(" om ", "").strip()
+                date_part = date_str.split(" om ")[0]
+                clean_date = date_part.split()[-1]  # pakt "03-05-2026"
+                clean_time = time_str  # time_str is al correct: "11:23"
                 trip_dt = datetime.strptime(
                     f"{clean_date} {clean_time}", "%d-%m-%Y %H:%M"
                 )
