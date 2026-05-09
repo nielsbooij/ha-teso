@@ -1,0 +1,22 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "TESO Veerboot",
+        "description": "Vul je Mijn TESO inloggegevens in.",
+        "data": {
+          "username": "Gebruikersnaam",
+          "password": "Wachtwoord"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Kan geen verbinding maken met het TESO portaal.",
+      "invalid_auth": "Ongeldige inloggegevens. Controleer je gebruikersnaam en wachtwoord.",
+      "unknown": "Onbekende fout. Controleer de logs voor meer informatie."
+    },
+    "abort": {
+      "already_configured": "TESO is al geconfigureerd voor dit account."
+    }
+  }
+}

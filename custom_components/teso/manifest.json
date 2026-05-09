@@ -1,0 +1,10 @@
+{
+  "domain": "teso",
+  "name": "TESO Veerboot",
+  "codeowners": [],
+  "config_flow": true,
+  "documentation": "https://github.com/jouw-gebruikersnaam/ha-teso",
+  "iot_class": "cloud_polling",
+  "requirements": ["beautifulsoup4==4.12.3"],
+  "version": "1.0.0"
+}
