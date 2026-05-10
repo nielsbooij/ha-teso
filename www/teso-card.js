@@ -22,42 +22,34 @@ class TesoCard extends HTMLElement {
     const hass = this._hass;
     if (!hass) return [];
 
-    // Verzamel alle unieke apparaten van de TESO integratie
     const devices = {};
 
-    Object.values(hass.entities || {}).forEach((entity) => {
-      const stateObj = hass.states[entity.entity_id];
+    Object.keys(hass.states).forEach((entityId) => {
+      const stateObj = hass.states[entityId];
       if (!stateObj) return;
 
-      const entityId = entity.entity_id;
+      const attrs = stateObj.attributes || {};
 
-      // Detecteer TESO entiteiten op basis van entity_id patroon
-      const match = entityId.match(
-        /sensor\.(teso_pas_(\d+)|(.+))_(gekoppeld_kenteken|laatste_overtocht|resterende_overtochten.*)/
-      );
-      if (!match) return;
+      // Groepeer op pasnummer attribuut
+      if (attrs.pasnummer !== undefined) {
+        const pasNummer = String(attrs.pasnummer);
+        const deviceName = `TESO-pas ${pasNummer}`;
 
-      // Probeer het pasnummer te extraheren uit de entity_id
-      const pasMatch = entityId.match(/teso_pas_(\d+)/);
-      if (!pasMatch) return;
+        if (!devices[pasNummer]) {
+          devices[pasNummer] = {
+            id: pasNummer,
+            name: deviceName,
+            entities: {},
+          };
+        }
 
-      const pasNummer = pasMatch[1];
-      const deviceName = `TESO-pas ${pasNummer}`;
-
-      if (!devices[pasNummer]) {
-        devices[pasNummer] = {
-          id: pasNummer,
-          name: deviceName,
-          entities: {},
-        };
-      }
-
-      if (entityId.includes("gekoppeld_kenteken")) {
-        devices[pasNummer].entities.kenteken = entityId;
-      } else if (entityId.includes("laatste_overtocht")) {
-        devices[pasNummer].entities.laatste_overtocht = entityId;
-      } else if (entityId.includes("resterende_overtochten")) {
-        devices[pasNummer].entities.saldo = entityId;
+        if (entityId.includes("gekoppeld_kenteken")) {
+          devices[pasNummer].entities.kenteken = entityId;
+        } else if (entityId.includes("laatste_overtocht")) {
+          devices[pasNummer].entities.laatste_overtocht = entityId;
+        } else if (entityId.includes("resterende_overtochten")) {
+          devices[pasNummer].entities.saldo = entityId;
+        }
       }
     });
 
@@ -79,17 +71,14 @@ class TesoCard extends HTMLElement {
     const stateObj = this._hass.states[entityId];
     if (!stateObj) return null;
 
-    // Probeer de vriendelijke naam te gebruiken om het producttype te extraheren
+    // Gebruik het product attribuut direct
+    if (stateObj.attributes.product) return stateObj.attributes.product;
+
+    // Fallback: vriendelijke naam
     const friendlyName = stateObj.attributes.friendly_name || "";
-    // Formaat: "Resterende overtochten - 15x voertuig t/m 6,50m TX"
     const match = friendlyName.match(/resterende overtochten\s*[-–]\s*(.+)/i);
     if (match) return match[1].trim();
 
-    // Fallback: probeer uit entity_id
-    const idMatch = entityId.match(/resterende_overtochten_(.+)/);
-    if (idMatch) {
-      return idMatch[1].replace(/_/g, " ").replace(/\btx\b/i, "TX");
-    }
     return null;
   }
 
