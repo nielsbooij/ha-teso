@@ -1,3 +1,5 @@
+![logo](custom_components/teso/images/icon.png)
+
 # TESO Veerboot - Home Assistant Integratie
 
 Volgt het aantal resterende overtochten op je TESO-passen en e-tickets via het Mijn TESO portaal.
