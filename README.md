@@ -1,4 +1,4 @@
-![logo](custom_components/teso/images/icon.png)
+![logo](brand/icon.png)
 
 # TESO Veerboot - Home Assistant Integratie
 
@@ -74,4 +74,6 @@ bij de e-ticket wordt ook de QR-code getoond wanneer er op het salde geklikt wor
 ```yaml
 type: custom:teso-card
 ```
-
+![card-pas](custom_components/teso/images/card-pas.png)
+![card-eticket](custom_components/teso/images/card-eticket.png)
+![qr](custom_components/teso/images/card-qrcode.png)
