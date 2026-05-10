@@ -62,11 +62,13 @@ class TesoCard extends HTMLElement {
         if (state && state.attributes && state.attributes.ticket_nummer) {
           const id = String(state.attributes.ticket_nummer);
           const shortId = id.length > 8 ? `...${id.slice(-8)}` : id;
+          const product = state.attributes.product || null;
+          const displayName = product ? `E-ticket ${product}` : `E-ticket ${shortId}`;
           if (!ticketsMap[id]) {
             ticketsMap[id] = {
               id,
               type: "ticket",
-              name: `E-ticket ${shortId}`,
+              name: displayName,
               entities: { saldo: entityId }
             };
           }
