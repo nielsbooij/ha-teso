@@ -4,6 +4,7 @@ class TesoCard extends HTMLElement {
     this.attachShadow({ mode: "open" });
     this._selectedDevice = null;
     this._initialized = false;
+    this._currentType = null; // "pas" of "ticket"
   }
 
   set hass(hass) {
@@ -23,43 +24,60 @@ class TesoCard extends HTMLElement {
     return 4;
   }
 
-  _getTesoDevices() {
+  _getAllDevices() {
     const hass = this._hass;
     if (!hass || !hass.states) return [];
 
-    const devices = {};
+    const devices = [];
+    const passenMap = {};
+    const ticketsMap = {};
 
     for (const entityId in hass.states) {
-      let pasNummer = null;
-      let type = null;
-
+      // Passen
       const kentekenMatch = entityId.match(/^sensor\.gekoppeld_kenteken_(\d+)$/);
       const overtachtMatch = entityId.match(/^sensor\.laatste_overtocht_(\d+)$/);
       const saldoMatch = entityId.match(/^sensor\.resterende_overtochten_/);
+      const ticketMatch = entityId.match(/^sensor\.e_ticket_saldo_(\d+)$/);
 
       if (kentekenMatch) {
-        pasNummer = kentekenMatch[1];
-        type = "kenteken";
+        const id = kentekenMatch[1];
+        if (!passenMap[id]) passenMap[id] = { id, type: "pas", name: `TESO-pas ${id}`, entities: {} };
+        passenMap[id].entities.kenteken = entityId;
       } else if (overtachtMatch) {
-        pasNummer = overtachtMatch[1];
-        type = "laatste_overtocht";
+        const id = overtachtMatch[1];
+        if (!passenMap[id]) passenMap[id] = { id, type: "pas", name: `TESO-pas ${id}`, entities: {} };
+        passenMap[id].entities.laatste_overtocht = entityId;
       } else if (saldoMatch) {
         const state = hass.states[entityId];
         if (state && state.attributes && state.attributes.pasnummer) {
-          pasNummer = String(state.attributes.pasnummer);
-          type = "saldo";
+          const id = String(state.attributes.pasnummer);
+          if (!passenMap[id]) passenMap[id] = { id, type: "pas", name: `TESO-pas ${id}`, entities: {} };
+          passenMap[id].entities.saldo = entityId;
         }
       }
 
-      if (!pasNummer || !type) continue;
-
-      if (!devices[pasNummer]) {
-        devices[pasNummer] = { id: pasNummer, name: `TESO-pas ${pasNummer}`, entities: {} };
+      // E-tickets - zoek op ticket_nummer attribuut
+      if (entityId.includes("e_ticket_saldo") || entityId.includes("ticket_saldo")) {
+        const state = hass.states[entityId];
+        if (state && state.attributes && state.attributes.ticket_nummer) {
+          const id = String(state.attributes.ticket_nummer);
+          const shortId = id.length > 8 ? `...${id.slice(-8)}` : id;
+          if (!ticketsMap[id]) {
+            ticketsMap[id] = {
+              id,
+              type: "ticket",
+              name: `E-ticket ${shortId}`,
+              entities: { saldo: entityId }
+            };
+          }
+        }
       }
-      devices[pasNummer].entities[type] = entityId;
     }
 
-    return Object.values(devices).sort((a, b) => a.id.localeCompare(b.id));
+    // Combineer passen en tickets gesorteerd
+    const passen = Object.values(passenMap).sort((a, b) => a.id.localeCompare(b.id));
+    const tickets = Object.values(ticketsMap).sort((a, b) => a.id.localeCompare(b.id));
+    return [...passen, ...tickets];
   }
 
   _getProductIcon(productName) {
@@ -95,8 +113,30 @@ class TesoCard extends HTMLElement {
     } catch { return dateStr; }
   }
 
+  _showQrPopup(qrSrc) {
+    const existing = this.shadowRoot.getElementById("qr-popup");
+    if (existing) existing.remove();
+
+    const popup = document.createElement("div");
+    popup.id = "qr-popup";
+    popup.innerHTML = `
+      <div class="qr-overlay">
+        <div class="qr-modal">
+          <button class="qr-close">&#x2715;</button>
+          <img src="${qrSrc}" alt="QR code" class="qr-image">
+          <p class="qr-hint">Scan deze QR code bij de incheckpaal</p>
+        </div>
+      </div>
+    `;
+    this.shadowRoot.appendChild(popup);
+    popup.querySelector(".qr-close").addEventListener("click", () => popup.remove());
+    popup.querySelector(".qr-overlay").addEventListener("click", (e) => {
+      if (e.target === popup.querySelector(".qr-overlay")) popup.remove();
+    });
+  }
+
   _initCard() {
-    const devices = this._getTesoDevices();
+    const devices = this._getAllDevices();
     if (devices.length === 0) {
       this.shadowRoot.innerHTML = `<ha-card><div style="padding:16px">Geen TESO-passen gevonden.</div></ha-card>`;
       return;
@@ -118,19 +158,29 @@ class TesoCard extends HTMLElement {
         .header-left { display: flex; align-items: center; gap: 10px; }
         .teso-logo { font-size: 18px; font-weight: 800; letter-spacing: 3px; color: var(--primary-text-color); }
         .teso-crown { color: var(--teso-yellow); font-size: 14px; }
-        select { background: var(--card-background-color, #1c1c1c); color: var(--primary-text-color); border: 1px solid var(--divider-color, rgba(255,255,255,0.15)); border-radius: 8px; padding: 6px 10px; font-size: 13px; cursor: pointer; outline: none; max-width: 180px; }
+        select { background: var(--card-background-color, #1c1c1c); color: var(--primary-text-color); border: 1px solid var(--divider-color, rgba(255,255,255,0.15)); border-radius: 8px; padding: 6px 10px; font-size: 13px; cursor: pointer; outline: none; max-width: 200px; }
         select:focus { border-color: var(--teso-yellow); }
         .body { padding: 12px 16px 16px; display: flex; flex-direction: column; gap: 4px; }
         .row { display: flex; align-items: center; gap: 12px; padding: 10px 8px; border-radius: 8px; transition: background 0.15s; }
         .row:hover { background: var(--secondary-background-color, rgba(255,255,255,0.04)); }
+        .row.clickable { cursor: pointer; }
+        .row.clickable:hover { background: rgba(245,196,0,0.08); }
         .row-icon { display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 8px; background: var(--secondary-background-color, rgba(255,255,255,0.06)); flex-shrink: 0; }
         .row-icon ha-icon { --mdc-icon-size: 20px; color: var(--teso-yellow); }
         .row-content { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
         .row-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--secondary-text-color); font-weight: 500; }
         .row-value { font-size: 15px; color: var(--primary-text-color); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .saldo-value { font-size: 22px; font-weight: 700; color: var(--teso-yellow); }
+        .qr-hint-label { font-size: 11px; color: var(--secondary-text-color); margin-top: 2px; }
         .divider { height: 1px; background: var(--divider-color, rgba(255,255,255,0.06)); margin: 2px 8px; }
-        .row-kenteken { display: none; }
+
+        /* QR Popup */
+        .qr-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.75); z-index: 9999; display: flex; align-items: center; justify-content: center; }
+        .qr-modal { background: var(--card-background-color, #1c1c1c); border-radius: 16px; padding: 24px; display: flex; flex-direction: column; align-items: center; gap: 16px; max-width: 320px; width: 90%; position: relative; }
+        .qr-close { position: absolute; top: 12px; right: 12px; background: none; border: none; color: var(--primary-text-color); font-size: 18px; cursor: pointer; padding: 4px 8px; border-radius: 6px; }
+        .qr-close:hover { background: rgba(255,255,255,0.1); }
+        .qr-image { width: 100%; max-width: 260px; border-radius: 8px; image-rendering: pixelated; }
+        .qr-hint { color: var(--secondary-text-color); font-size: 13px; text-align: center; margin: 0; }
       </style>
 
       <ha-card>
@@ -145,40 +195,68 @@ class TesoCard extends HTMLElement {
           }
         </div>
 
-        <div class="body">
-          <div class="row row-product">
-            <div class="row-icon"><ha-icon icon="mdi:card-account-details-outline"></ha-icon></div>
-            <div class="row-content">
-              <span class="row-label">Product</span>
-              <span class="row-value" id="val-product"></span>
+        <div class="body" id="card-body">
+          <!-- Pas weergave -->
+          <div id="pas-view">
+            <div class="row row-product">
+              <div class="row-icon"><ha-icon icon="mdi:card-account-details-outline"></ha-icon></div>
+              <div class="row-content">
+                <span class="row-label">Product</span>
+                <span class="row-value" id="val-product"></span>
+              </div>
+            </div>
+            <div class="divider divider-product"></div>
+            <div class="row">
+              <div class="row-icon"><ha-icon id="icon-saldo" icon="mdi:car"></ha-icon></div>
+              <div class="row-content">
+                <span class="row-label">Saldo</span>
+                <span class="row-value saldo-value" id="val-saldo"></span>
+              </div>
+            </div>
+            <div class="divider divider-kenteken" style="display:none"></div>
+            <div class="row row-kenteken" style="display:none">
+              <div class="row-icon"><ha-icon icon="mdi:license"></ha-icon></div>
+              <div class="row-content">
+                <span class="row-label">Kenteken</span>
+                <span class="row-value" id="val-kenteken"></span>
+              </div>
+            </div>
+            <div class="divider"></div>
+            <div class="row">
+              <div class="row-icon"><ha-icon icon="mdi:ferry"></ha-icon></div>
+              <div class="row-content">
+                <span class="row-label">Laatste overtocht</span>
+                <span class="row-value" id="val-laatste"></span>
+              </div>
             </div>
           </div>
-          <div class="divider divider-product"></div>
 
-          <div class="row">
-            <div class="row-icon"><ha-icon id="icon-saldo" icon="mdi:car"></ha-icon></div>
-            <div class="row-content">
-              <span class="row-label">Saldo</span>
-              <span class="row-value saldo-value" id="val-saldo"></span>
+          <!-- Ticket weergave -->
+          <div id="ticket-view" style="display:none">
+            <div class="row">
+              <div class="row-icon"><ha-icon icon="mdi:card-account-details-outline"></ha-icon></div>
+              <div class="row-content">
+                <span class="row-label">Product</span>
+                <span class="row-value" id="val-ticket-product"></span>
+              </div>
             </div>
-          </div>
-
-          <div class="divider divider-kenteken" style="display:none"></div>
-          <div class="row row-kenteken">
-            <div class="row-icon"><ha-icon icon="mdi:license"></ha-icon></div>
-            <div class="row-content">
-              <span class="row-label">Kenteken</span>
-              <span class="row-value" id="val-kenteken"></span>
+            <div class="divider"></div>
+            <div class="row clickable" id="row-ticket-saldo">
+              <div class="row-icon"><ha-icon id="icon-ticket-saldo" icon="mdi:ticket-confirmation"></ha-icon></div>
+              <div class="row-content">
+                <span class="row-label">Saldo</span>
+                <span class="row-value saldo-value" id="val-ticket-saldo"></span>
+                <span class="qr-hint-label">Tik om QR code te tonen</span>
+              </div>
+              <div class="row-icon" style="background:none"><ha-icon icon="mdi:qrcode" style="--mdc-icon-size:20px;color:var(--secondary-text-color)"></ha-icon></div>
             </div>
-          </div>
-
-          <div class="divider"></div>
-
-          <div class="row">
-            <div class="row-icon"><ha-icon icon="mdi:ferry"></ha-icon></div>
-            <div class="row-content">
-              <span class="row-label">Laatste overtocht</span>
-              <span class="row-value" id="val-laatste"></span>
+            <div class="divider"></div>
+            <div class="row">
+              <div class="row-icon"><ha-icon icon="mdi:calendar"></ha-icon></div>
+              <div class="row-content">
+                <span class="row-label">Aankoopdatum</span>
+                <span class="row-value" id="val-ticket-datum"></span>
+              </div>
             </div>
           </div>
         </div>
@@ -199,47 +277,82 @@ class TesoCard extends HTMLElement {
 
   _updateValues() {
     const hass = this._hass;
-    const devices = this._getTesoDevices();
+    const devices = this._getAllDevices();
     if (devices.length === 0 || !this._initialized) return;
 
     const device = devices.find((d) => d.id === this._selectedDevice) || devices[0];
-    const { entities } = device;
-
-    const salState = entities.saldo ? hass.states[entities.saldo] : null;
-    const kentekenState = entities.kenteken ? hass.states[entities.kenteken] : null;
-    const overtachtState = entities.laatste_overtocht ? hass.states[entities.laatste_overtocht] : null;
-
-    const saldo = salState ? salState.state : "-";
-    const kenteken = kentekenState ? kentekenState.state : null;
-    const heeftKenteken = kenteken && kenteken !== "unknown" && kenteken !== "unavailable" && kenteken !== "";
-    const laatste = overtachtState ? this._formatDate(overtachtState.state) : "-";
-    const productName = this._extractProductName(entities.saldo);
-    const productIcon = this._getProductIcon(productName);
-
     const root = this.shadowRoot;
 
-    const valProduct = root.getElementById("val-product");
-    const rowProduct = root.querySelector(".row-product");
-    const dividerProduct = root.querySelector(".divider-product");
-    if (valProduct) valProduct.textContent = productName || "";
-    if (rowProduct) rowProduct.style.display = productName ? "flex" : "none";
-    if (dividerProduct) dividerProduct.style.display = productName ? "block" : "none";
+    const pasView = root.getElementById("pas-view");
+    const ticketView = root.getElementById("ticket-view");
 
-    const valSaldo = root.getElementById("val-saldo");
-    if (valSaldo) valSaldo.textContent = `${saldo} overtochten`;
+    if (device.type === "ticket") {
+      pasView.style.display = "none";
+      ticketView.style.display = "block";
 
-    const iconSaldo = root.getElementById("icon-saldo");
-    if (iconSaldo) iconSaldo.setAttribute("icon", productIcon);
+      const state = device.entities.saldo ? hass.states[device.entities.saldo] : null;
+      const attrs = state ? state.attributes : {};
 
-    const valKenteken = root.getElementById("val-kenteken");
-    const rowKenteken = root.querySelector(".row-kenteken");
-    const dividerKenteken = root.querySelector(".divider-kenteken");
-    if (valKenteken) valKenteken.textContent = kenteken || "";
-    if (rowKenteken) rowKenteken.style.display = heeftKenteken ? "flex" : "none";
-    if (dividerKenteken) dividerKenteken.style.display = heeftKenteken ? "block" : "none";
+      const valProduct = root.getElementById("val-ticket-product");
+      if (valProduct) valProduct.textContent = attrs.product || "-";
 
-    const valLaatste = root.getElementById("val-laatste");
-    if (valLaatste) valLaatste.textContent = laatste;
+      const iconSaldo = root.getElementById("icon-ticket-saldo");
+      if (iconSaldo) iconSaldo.setAttribute("icon", this._getProductIcon(attrs.product));
+
+      const valSaldo = root.getElementById("val-ticket-saldo");
+      if (valSaldo) valSaldo.textContent = state ? `${state.state} retours` : "-";
+
+      const valDatum = root.getElementById("val-ticket-datum");
+      if (valDatum) valDatum.textContent = attrs.aankoopdatum || "-";
+
+      // QR popup klik
+      const rowSaldo = root.getElementById("row-ticket-saldo");
+      if (rowSaldo) {
+        rowSaldo.onclick = null;
+        if (attrs.qr_code) {
+          rowSaldo.onclick = () => this._showQrPopup(attrs.qr_code);
+        }
+      }
+
+    } else {
+      pasView.style.display = "block";
+      ticketView.style.display = "none";
+
+      const { entities } = device;
+      const salState = entities.saldo ? hass.states[entities.saldo] : null;
+      const kentekenState = entities.kenteken ? hass.states[entities.kenteken] : null;
+      const overtachtState = entities.laatste_overtocht ? hass.states[entities.laatste_overtocht] : null;
+
+      const saldo = salState ? salState.state : "-";
+      const kenteken = kentekenState ? kentekenState.state : null;
+      const heeftKenteken = kenteken && kenteken !== "unknown" && kenteken !== "unavailable" && kenteken !== "";
+      const laatste = overtachtState ? this._formatDate(overtachtState.state) : "-";
+      const productName = this._extractProductName(entities.saldo);
+      const productIcon = this._getProductIcon(productName);
+
+      const valProduct = root.getElementById("val-product");
+      const rowProduct = root.querySelector(".row-product");
+      const dividerProduct = root.querySelector(".divider-product");
+      if (valProduct) valProduct.textContent = productName || "";
+      if (rowProduct) rowProduct.style.display = productName ? "flex" : "none";
+      if (dividerProduct) dividerProduct.style.display = productName ? "block" : "none";
+
+      const valSaldo = root.getElementById("val-saldo");
+      if (valSaldo) valSaldo.textContent = `${saldo} overtochten`;
+
+      const iconSaldo = root.getElementById("icon-saldo");
+      if (iconSaldo) iconSaldo.setAttribute("icon", productIcon);
+
+      const rowKenteken = root.querySelector(".row-kenteken");
+      const dividerKenteken = root.querySelector(".divider-kenteken");
+      const valKenteken = root.getElementById("val-kenteken");
+      if (valKenteken) valKenteken.textContent = kenteken || "";
+      if (rowKenteken) rowKenteken.style.display = heeftKenteken ? "flex" : "none";
+      if (dividerKenteken) dividerKenteken.style.display = heeftKenteken ? "block" : "none";
+
+      const valLaatste = root.getElementById("val-laatste");
+      if (valLaatste) valLaatste.textContent = laatste;
+    }
   }
 }
 
@@ -249,6 +362,6 @@ window.customCards = window.customCards || [];
 window.customCards.push({
   type: "teso-card",
   name: "TESO Veerboot",
-  description: "Toont TESO-pas informatie inclusief saldo, kenteken en laatste overtocht.",
+  description: "Toont TESO-pas en e-ticket informatie inclusief QR code.",
   preview: false,
 });
