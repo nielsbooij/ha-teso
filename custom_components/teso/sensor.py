@@ -131,7 +131,7 @@ class TesoLicensePlate(TesoBaseSensor):
         super().__init__(coordinator, pass_data, device_info)
 
         self._attr_unique_id = f"teso_{self._card_number}_license_plate"
-        self._attr_name = "Gekoppeld kenteken"
+        self._attr_name = f"Gekoppeld kenteken {self._card_number}"
         self._attr_icon = "mdi:car"
 
     @property
@@ -167,7 +167,7 @@ class TesoLastTrip(TesoBaseSensor):
         super().__init__(coordinator, pass_data, device_info)
 
         self._attr_unique_id = f"teso_{self._card_number}_last_trip"
-        self._attr_name = "Laatste overtocht"
+        self._attr_name = f"Laatste overtocht {self._card_number}"
         self._attr_icon = "mdi:clock-outline"
         self._attr_device_class = SensorDeviceClass.TIMESTAMP
 
@@ -179,7 +179,6 @@ class TesoLastTrip(TesoBaseSensor):
             return None
         last_trip = pass_data.get("last_trip")
         if isinstance(last_trip, datetime):
-            # Home Assistant verwacht timezone-aware datetimes
             from homeassistant.util import dt as dt_util
             return dt_util.as_local(last_trip)
         return None
