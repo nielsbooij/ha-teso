@@ -24,7 +24,8 @@ class TesoCard extends HTMLElement {
 
     const devices = {};
 
-    Object.keys(hass.states).forEach((entityId) => {
+    // Gebruik for...in in plaats van Object.keys() vanwege HA Proxy object
+    for (const entityId in hass.states) {
       let pasNummer = null;
 
       const kentekenMatch = entityId.match(/^sensor\.gekoppeld_kenteken_(\d+)$/);
@@ -35,7 +36,7 @@ class TesoCard extends HTMLElement {
       else if (overtachtMatch) pasNummer = overtachtMatch[1];
       else if (saldoMatch) pasNummer = saldoMatch[1];
 
-      if (!pasNummer) return;
+      if (!pasNummer) continue;
 
       if (!devices[pasNummer]) {
         devices[pasNummer] = {
@@ -48,7 +49,7 @@ class TesoCard extends HTMLElement {
       if (kentekenMatch) devices[pasNummer].entities.kenteken = entityId;
       else if (overtachtMatch) devices[pasNummer].entities.laatste_overtocht = entityId;
       else if (saldoMatch) devices[pasNummer].entities.saldo = entityId;
-    });
+    }
 
     return Object.values(devices).sort((a, b) => a.id.localeCompare(b.id));
   }
