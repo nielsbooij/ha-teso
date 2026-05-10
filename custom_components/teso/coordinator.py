@@ -18,6 +18,7 @@ _LOGGER = logging.getLogger(__name__)
 BASE_URL = "https://www.teso.nl"
 LOGIN_URL = f"{BASE_URL}/my-teso/login/"
 PASSES_URL = f"{BASE_URL}/my-teso/my-passes/"
+TICKETS_URL = f"{BASE_URL}/my-teso/loose-tickets/"
 TRIPS_URL = f"{BASE_URL}/my-teso/trips/"
 
 UPDATE_INTERVAL = timedelta(minutes=5)
@@ -38,7 +39,7 @@ class TesoCoordinator(DataUpdateCoordinator):
         self.username = entry.data[CONF_USERNAME]
         self.password = entry.data[CONF_PASSWORD]
 
-    async def _async_update_data(self) -> list[dict]:
+    async def _async_update_data(self) -> dict:
         """Haal data op van het TESO portaal."""
         try:
             return await self._fetch_data()
@@ -47,7 +48,7 @@ class TesoCoordinator(DataUpdateCoordinator):
         except Exception as err:
             raise UpdateFailed(f"Fout bij ophalen TESO data: {err}") from err
 
-    async def _fetch_data(self) -> list[dict]:
+    async def _fetch_data(self) -> dict:
         """Login en haal alle gegevens op."""
         timeout = aiohttp.ClientTimeout(total=30)
 
@@ -93,13 +94,20 @@ class TesoCoordinator(DataUpdateCoordinator):
                     raise UpdateFailed(f"Kon passenpagina niet ophalen: {resp.status}")
                 passes_html = await resp.text()
 
-            # Stap 4: haal overtochten pagina op
+            # Stap 4: haal e-tickets pagina op
+            async with session.get(TICKETS_URL) as resp:
+                if resp.status != 200:
+                    raise UpdateFailed(f"Kon e-tickets pagina niet ophalen: {resp.status}")
+                tickets_html = await resp.text()
+
+            # Stap 5: haal overtochten pagina op
             async with session.get(TRIPS_URL) as resp:
                 if resp.status != 200:
                     raise UpdateFailed(f"Kon overtochten pagina niet ophalen: {resp.status}")
                 trips_html = await resp.text()
 
             passes = self._parse_passes(passes_html)
+            tickets = self._parse_tickets(tickets_html)
             trips = self._parse_trips(trips_html)
 
             # Koppel de laatste overtocht aan de juiste pas
@@ -107,7 +115,10 @@ class TesoCoordinator(DataUpdateCoordinator):
                 card_number = pass_data.get("card_number", "")
                 pass_data["last_trip"] = trips.get(card_number)
 
-            return passes
+            return {
+                "passes": passes,
+                "tickets": tickets,
+            }
 
     def _parse_passes(self, html: str) -> list[dict]:
         """Parseer de HTML van de passenpagina."""
@@ -159,6 +170,53 @@ class TesoCoordinator(DataUpdateCoordinator):
         _LOGGER.debug("TESO passen: %s", passes)
         return passes
 
+    def _parse_tickets(self, html: str) -> list[dict]:
+        """Parseer de HTML van de e-tickets pagina."""
+        soup = BeautifulSoup(html, "html.parser")
+        tickets = []
+
+        for card in soup.find_all("div", class_="loose-card"):
+            ticket = {}
+
+            # Ticketnummer
+            number_el = card.find("p", class_="loose-card__number")
+            if number_el:
+                ticket["ticket_number"] = number_el.text.strip().replace("Nr: ", "")
+
+            # Aankoopdatum
+            date_el = card.find("p", class_="loose-card__date")
+            if date_el:
+                ticket["purchase_date"] = date_el.text.strip().replace("Aankoopdatum: ", "").replace("Aankoopdatum:", "").strip()
+
+            # Productnaam en saldo uit de description tekst
+            desc_el = card.find("div", class_="loose-card__description")
+            if desc_el:
+                # QR code base64 data
+                qr_img = desc_el.find("img")
+                if qr_img and qr_img.get("src", "").startswith("data:image"):
+                    ticket["qr_code"] = qr_img["src"]
+
+                # Tekst nodes bevatten productnaam en saldo
+                texts = [t.strip() for t in desc_el.stripped_strings if t.strip()]
+                for text in texts:
+                    if "resterende retours" in text.lower():
+                        try:
+                            ticket["remaining"] = int(text.split()[0])
+                        except (ValueError, IndexError):
+                            ticket["remaining"] = 0
+                    elif text and not text.startswith("data:") and len(text) > 2:
+                        # Productnaam is de langste tekstnode die geen getal/datum is
+                        if "ticket_name" not in ticket:
+                            ticket["ticket_name"] = text
+
+            if ticket.get("ticket_number"):
+                tickets.append(ticket)
+
+        _LOGGER.debug("TESO e-tickets: %s", [
+            {k: v for k, v in t.items() if k != "qr_code"} for t in tickets
+        ])
+        return tickets
+
     def _parse_trips(self, html: str) -> dict[str, datetime]:
         """Parseer de overtochten pagina en geef de laatste overtocht per pasnummer terug."""
         soup = BeautifulSoup(html, "html.parser")
@@ -189,8 +247,8 @@ class TesoCoordinator(DataUpdateCoordinator):
 
             try:
                 date_part = date_str.split(" om ")[0]
-                clean_date = date_part.split()[-1]  # pakt "03-05-2026"
-                clean_time = time_str  # time_str is al correct: "11:23"
+                clean_date = date_part.split()[-1]
+                clean_time = time_str
                 trip_dt = datetime.strptime(
                     f"{clean_date} {clean_time}", "%d-%m-%Y %H:%M"
                 )
