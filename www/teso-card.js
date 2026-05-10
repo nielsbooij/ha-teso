@@ -353,3 +353,4 @@ window.customCards.push({
   description: "Toont TESO-pas informatie inclusief saldo, kenteken en laatste overtocht.",
   preview: false,
 });
+
