@@ -20,7 +20,7 @@ class TesoCard extends HTMLElement {
 
   _getTesoDevices() {
     const hass = this._hass;
-    if (!hass) return [];
+    if (!hass || !hass.states) return [];
 
     const devices = {};
 
@@ -53,7 +53,9 @@ class TesoCard extends HTMLElement {
       }
     });
 
-    return Object.values(devices);
+    const result = Object.values(devices).sort((a, b) => a.id.localeCompare(b.id));
+    console.log("[TESO-card] gevonden apparaten:", result);
+    return result;
   }
 
   _getProductIcon(productName) {
