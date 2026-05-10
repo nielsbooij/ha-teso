@@ -250,7 +250,7 @@ class TesoCard extends HTMLElement {
         <div class="header">
           <div class="header-left">
             <span class="teso-crown">&#9819;</span>
-            <span class="teso-logo">TESO</span>
+            <span class="teso-logo">TESO</span><span style="font-size:10px;color:var(--secondary-text-color);margin-left:4px">v4</span>
           </div>
           ${devices.length > 1
             ? `<select id="pas-select">${dropdownOptions}</select>`
