@@ -20,7 +20,7 @@ LOGIN_URL = f"{BASE_URL}/my-teso/login/"
 PASSES_URL = f"{BASE_URL}/my-teso/my-passes/"
 TRIPS_URL = f"{BASE_URL}/my-teso/trips/"
 
-UPDATE_INTERVAL = timedelta(hours=1)
+UPDATE_INTERVAL = timedelta(minutes=5)
 
 
 class TesoCoordinator(DataUpdateCoordinator):
