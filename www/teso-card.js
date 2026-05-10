@@ -24,19 +24,30 @@ class TesoCard extends HTMLElement {
 
     const devices = {};
 
-    // Gebruik for...in in plaats van Object.keys() vanwege HA Proxy object
     for (const entityId in hass.states) {
       let pasNummer = null;
+      let type = null;
 
       const kentekenMatch = entityId.match(/^sensor\.gekoppeld_kenteken_(\d+)$/);
       const overtachtMatch = entityId.match(/^sensor\.laatste_overtocht_(\d+)$/);
-      const saldoMatch = entityId.match(/^sensor\.resterende_overtochten_.+_(\d{7,})$/);
+      const saldoMatch = entityId.match(/^sensor\.resterende_overtochten_/);
 
-      if (kentekenMatch) pasNummer = kentekenMatch[1];
-      else if (overtachtMatch) pasNummer = overtachtMatch[1];
-      else if (saldoMatch) pasNummer = saldoMatch[1];
+      if (kentekenMatch) {
+        pasNummer = kentekenMatch[1];
+        type = "kenteken";
+      } else if (overtachtMatch) {
+        pasNummer = overtachtMatch[1];
+        type = "laatste_overtocht";
+      } else if (saldoMatch) {
+        // Pasnummer uit attribuut halen
+        const state = hass.states[entityId];
+        if (state && state.attributes && state.attributes.pasnummer) {
+          pasNummer = String(state.attributes.pasnummer);
+          type = "saldo";
+        }
+      }
 
-      if (!pasNummer) continue;
+      if (!pasNummer || !type) continue;
 
       if (!devices[pasNummer]) {
         devices[pasNummer] = {
@@ -46,9 +57,7 @@ class TesoCard extends HTMLElement {
         };
       }
 
-      if (kentekenMatch) devices[pasNummer].entities.kenteken = entityId;
-      else if (overtachtMatch) devices[pasNummer].entities.laatste_overtocht = entityId;
-      else if (saldoMatch) devices[pasNummer].entities.saldo = entityId;
+      devices[pasNummer].entities[type] = entityId;
     }
 
     return Object.values(devices).sort((a, b) => a.id.localeCompare(b.id));
