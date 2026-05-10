@@ -25,37 +25,32 @@ class TesoCard extends HTMLElement {
     const devices = {};
 
     Object.keys(hass.states).forEach((entityId) => {
-      const stateObj = hass.states[entityId];
-      if (!stateObj) return;
+      let pasNummer = null;
 
-      const attrs = stateObj.attributes || {};
+      const kentekenMatch = entityId.match(/^sensor\.gekoppeld_kenteken_(\d+)$/);
+      const overtachtMatch = entityId.match(/^sensor\.laatste_overtocht_(\d+)$/);
+      const saldoMatch = entityId.match(/^sensor\.resterende_overtochten_.+_(\d{7,})$/);
 
-      // Groepeer op pasnummer attribuut
-      if (attrs.pasnummer !== undefined) {
-        const pasNummer = String(attrs.pasnummer);
-        const deviceName = `TESO-pas ${pasNummer}`;
+      if (kentekenMatch) pasNummer = kentekenMatch[1];
+      else if (overtachtMatch) pasNummer = overtachtMatch[1];
+      else if (saldoMatch) pasNummer = saldoMatch[1];
 
-        if (!devices[pasNummer]) {
-          devices[pasNummer] = {
-            id: pasNummer,
-            name: deviceName,
-            entities: {},
-          };
-        }
+      if (!pasNummer) return;
 
-        if (entityId.includes("gekoppeld_kenteken")) {
-          devices[pasNummer].entities.kenteken = entityId;
-        } else if (entityId.includes("laatste_overtocht")) {
-          devices[pasNummer].entities.laatste_overtocht = entityId;
-        } else if (entityId.includes("resterende_overtochten")) {
-          devices[pasNummer].entities.saldo = entityId;
-        }
+      if (!devices[pasNummer]) {
+        devices[pasNummer] = {
+          id: pasNummer,
+          name: `TESO-pas ${pasNummer}`,
+          entities: {},
+        };
       }
+
+      if (kentekenMatch) devices[pasNummer].entities.kenteken = entityId;
+      else if (overtachtMatch) devices[pasNummer].entities.laatste_overtocht = entityId;
+      else if (saldoMatch) devices[pasNummer].entities.saldo = entityId;
     });
 
-    const result = Object.values(devices).sort((a, b) => a.id.localeCompare(b.id));
-    console.log("[TESO-card] gevonden apparaten:", result);
-    return result;
+    return Object.values(devices).sort((a, b) => a.id.localeCompare(b.id));
   }
 
   _getProductIcon(productName) {
@@ -72,20 +67,15 @@ class TesoCard extends HTMLElement {
     if (!entityId || !this._hass) return null;
     const stateObj = this._hass.states[entityId];
     if (!stateObj) return null;
-
-    // Gebruik het product attribuut direct
     if (stateObj.attributes.product) return stateObj.attributes.product;
-
-    // Fallback: vriendelijke naam
     const friendlyName = stateObj.attributes.friendly_name || "";
-    const match = friendlyName.match(/resterende overtochten\s*[-–]\s*(.+)/i);
+    const match = friendlyName.match(/resterende overtochten\s*[-]\s*(.+)/i);
     if (match) return match[1].trim();
-
     return null;
   }
 
   _formatDate(dateStr) {
-    if (!dateStr || dateStr === "unknown" || dateStr === "unavailable") return "–";
+    if (!dateStr || dateStr === "unknown" || dateStr === "unavailable") return "-";
     try {
       const date = new Date(dateStr);
       if (isNaN(date)) return dateStr;
@@ -111,7 +101,6 @@ class TesoCard extends HTMLElement {
       return;
     }
 
-    // Selecteer standaard het eerste apparaat
     if (!this._selectedDevice || !devices.find((d) => d.id === this._selectedDevice)) {
       this._selectedDevice = devices[0].id;
     }
@@ -123,35 +112,29 @@ class TesoCard extends HTMLElement {
     const kentekenState = entities.kenteken ? hass.states[entities.kenteken] : null;
     const overtachtState = entities.laatste_overtocht ? hass.states[entities.laatste_overtocht] : null;
 
-    const saldo = salState ? salState.state : "–";
+    const saldo = salState ? salState.state : "-";
     const kenteken = kentekenState ? kentekenState.state : null;
     const heeftKenteken = kenteken && kenteken !== "unknown" && kenteken !== "unavailable" && kenteken !== "";
-    const laatste = overtachtState ? this._formatDate(overtachtState.state) : "–";
+    const laatste = overtachtState ? this._formatDate(overtachtState.state) : "-";
 
     const productName = this._extractProductName(entities.saldo);
     const productIcon = this._getProductIcon(productName);
 
     const dropdownOptions = devices
-      .map(
-        (d) =>
-          `<option value="${d.id}" ${d.id === this._selectedDevice ? "selected" : ""}>${d.name}</option>`
-      )
+      .map((d) => `<option value="${d.id}" ${d.id === this._selectedDevice ? "selected" : ""}>${d.name}</option>`)
       .join("");
 
     this.shadowRoot.innerHTML = `
       <style>
         :host {
           --teso-yellow: #f5c400;
-          --teso-dark: #1e1e1e;
           --radius: 12px;
         }
-
         ha-card {
           border-radius: var(--radius);
           overflow: hidden;
           font-family: var(--paper-font-body1_-_font-family, sans-serif);
         }
-
         .header {
           display: flex;
           align-items: center;
@@ -159,25 +142,21 @@ class TesoCard extends HTMLElement {
           padding: 14px 16px 10px;
           border-bottom: 1px solid var(--divider-color, rgba(255,255,255,0.08));
         }
-
         .header-left {
           display: flex;
           align-items: center;
           gap: 10px;
         }
-
         .teso-logo {
           font-size: 18px;
           font-weight: 800;
           letter-spacing: 3px;
           color: var(--primary-text-color);
         }
-
         .teso-crown {
           color: var(--teso-yellow);
           font-size: 14px;
         }
-
         select {
           background: var(--card-background-color, #1c1c1c);
           color: var(--primary-text-color);
@@ -189,18 +168,15 @@ class TesoCard extends HTMLElement {
           outline: none;
           max-width: 180px;
         }
-
         select:focus {
           border-color: var(--teso-yellow);
         }
-
         .body {
           padding: 12px 16px 16px;
           display: flex;
           flex-direction: column;
           gap: 4px;
         }
-
         .row {
           display: flex;
           align-items: center;
@@ -209,11 +185,9 @@ class TesoCard extends HTMLElement {
           border-radius: 8px;
           transition: background 0.15s;
         }
-
         .row:hover {
           background: var(--secondary-background-color, rgba(255,255,255,0.04));
         }
-
         .row-icon {
           display: flex;
           align-items: center;
@@ -224,12 +198,10 @@ class TesoCard extends HTMLElement {
           background: var(--secondary-background-color, rgba(255,255,255,0.06));
           flex-shrink: 0;
         }
-
         .row-icon ha-icon {
           --mdc-icon-size: 20px;
           color: var(--teso-yellow);
         }
-
         .row-content {
           display: flex;
           flex-direction: column;
@@ -237,7 +209,6 @@ class TesoCard extends HTMLElement {
           flex: 1;
           min-width: 0;
         }
-
         .row-label {
           font-size: 11px;
           text-transform: uppercase;
@@ -245,7 +216,6 @@ class TesoCard extends HTMLElement {
           color: var(--secondary-text-color);
           font-weight: 500;
         }
-
         .row-value {
           font-size: 15px;
           color: var(--primary-text-color);
@@ -254,13 +224,11 @@ class TesoCard extends HTMLElement {
           overflow: hidden;
           text-overflow: ellipsis;
         }
-
         .saldo-value {
           font-size: 22px;
           font-weight: 700;
           color: var(--teso-yellow);
         }
-
         .divider {
           height: 1px;
           background: var(--divider-color, rgba(255,255,255,0.06));
@@ -271,20 +239,17 @@ class TesoCard extends HTMLElement {
       <ha-card>
         <div class="header">
           <div class="header-left">
-            <span class="teso-crown">♛</span>
+            <span class="teso-crown">&#9819;</span>
             <span class="teso-logo">TESO</span>
           </div>
-          ${
-            devices.length > 1
-              ? `<select id="pas-select">${dropdownOptions}</select>`
-              : `<span style="font-size:13px;color:var(--secondary-text-color)">${device.name}</span>`
+          ${devices.length > 1
+            ? `<select id="pas-select">${dropdownOptions}</select>`
+            : `<span style="font-size:13px;color:var(--secondary-text-color)">${device.name}</span>`
           }
         </div>
 
         <div class="body">
-          ${
-            productName
-              ? `
+          ${productName ? `
             <div class="row">
               <div class="row-icon"><ha-icon icon="mdi:card-account-details-outline"></ha-icon></div>
               <div class="row-content">
@@ -293,9 +258,7 @@ class TesoCard extends HTMLElement {
               </div>
             </div>
             <div class="divider"></div>
-          `
-              : ""
-          }
+          ` : ""}
 
           <div class="row">
             <div class="row-icon"><ha-icon icon="${productIcon}"></ha-icon></div>
@@ -305,9 +268,7 @@ class TesoCard extends HTMLElement {
             </div>
           </div>
 
-          ${
-            heeftKenteken
-              ? `
+          ${heeftKenteken ? `
             <div class="divider"></div>
             <div class="row">
               <div class="row-icon"><ha-icon icon="mdi:license"></ha-icon></div>
@@ -316,9 +277,7 @@ class TesoCard extends HTMLElement {
                 <span class="row-value">${kenteken}</span>
               </div>
             </div>
-          `
-              : ""
-          }
+          ` : ""}
 
           <div class="divider"></div>
 
@@ -333,7 +292,6 @@ class TesoCard extends HTMLElement {
       </ha-card>
     `;
 
-    // Event listener voor dropdown
     const select = this.shadowRoot.getElementById("pas-select");
     if (select) {
       select.addEventListener("change", (e) => {
@@ -353,4 +311,3 @@ window.customCards.push({
   description: "Toont TESO-pas informatie inclusief saldo, kenteken en laatste overtocht.",
   preview: false,
 });
-
