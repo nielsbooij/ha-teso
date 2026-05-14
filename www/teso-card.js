@@ -33,24 +33,39 @@ class TesoCard extends HTMLElement {
     const ticketsMap = {};
 
     for (const entityId in hass.states) {
-      // Passen
-      const kentekenMatch = entityId.match(/^sensor\.gekoppeld_kenteken_(\d+)$/);
-      const overtachtMatch = entityId.match(/^sensor\.laatste_overtocht_(\d+)$/);
-      const saldoMatch = entityId.match(/^sensor\.resterende_overtochten_/);
-      const ticketMatch = entityId.match(/^sensor\.e_ticket_saldo_(\d+)$/);
+      const state = hass.states[entityId];
+      const attrs = state ? state.attributes : {};
+
+      // Formaat 1: sensor.gekoppeld_kenteken_{pasnummer}
+      // Formaat 2: sensor.teso_pas_{pasnummer}_gekoppeld_kenteken
+      const kentekenMatch =
+        entityId.match(/^sensor\.gekoppeld_kenteken_(\d+)$/) ||
+        entityId.match(/^sensor\.teso_pas_(\d+)_gekoppeld_kenteken/);
+
+      const overtachtMatch =
+        entityId.match(/^sensor\.laatste_overtocht_(\d+)$/) ||
+        entityId.match(/^sensor\.teso_pas_(\d+)_laatste_overtocht/);
+
+      const saldoMatch =
+        entityId.match(/^sensor\.resterende_overtochten_/) ||
+        entityId.match(/^sensor\.teso_pas_(\d+)_resterende_overtochten/);
 
       if (kentekenMatch) {
-        const id = kentekenMatch[1];
-        if (!passenMap[id]) passenMap[id] = { id, type: "pas", name: `TESO-pas ${id}`, entities: {} };
-        passenMap[id].entities.kenteken = entityId;
+        // Pasnummer uit regex of uit attribuut
+        const id = kentekenMatch[1] || (attrs.pasnummer ? String(attrs.pasnummer) : null);
+        if (id) {
+          if (!passenMap[id]) passenMap[id] = { id, type: "pas", name: `TESO-pas ${id}`, entities: {} };
+          passenMap[id].entities.kenteken = entityId;
+        }
       } else if (overtachtMatch) {
-        const id = overtachtMatch[1];
-        if (!passenMap[id]) passenMap[id] = { id, type: "pas", name: `TESO-pas ${id}`, entities: {} };
-        passenMap[id].entities.laatste_overtocht = entityId;
+        const id = overtachtMatch[1] || (attrs.pasnummer ? String(attrs.pasnummer) : null);
+        if (id) {
+          if (!passenMap[id]) passenMap[id] = { id, type: "pas", name: `TESO-pas ${id}`, entities: {} };
+          passenMap[id].entities.laatste_overtocht = entityId;
+        }
       } else if (saldoMatch) {
-        const state = hass.states[entityId];
-        if (state && state.attributes && state.attributes.pasnummer) {
-          const id = String(state.attributes.pasnummer);
+        const id = (saldoMatch[1]) || (attrs.pasnummer ? String(attrs.pasnummer) : null);
+        if (id) {
           if (!passenMap[id]) passenMap[id] = { id, type: "pas", name: `TESO-pas ${id}`, entities: {} };
           passenMap[id].entities.saldo = entityId;
         }
@@ -58,17 +73,14 @@ class TesoCard extends HTMLElement {
 
       // E-tickets - zoek op ticket_nummer attribuut
       if (entityId.includes("e_ticket_saldo") || entityId.includes("ticket_saldo")) {
-        const state = hass.states[entityId];
-        if (state && state.attributes && state.attributes.ticket_nummer) {
-          const id = String(state.attributes.ticket_nummer);
+        if (attrs.ticket_nummer) {
+          const id = String(attrs.ticket_nummer);
           const shortId = id.length > 8 ? `...${id.slice(-8)}` : id;
-          const product = state.attributes.product || null;
-          const displayName = product ? `E-ticket ${product}` : `E-ticket ${shortId}`;
           if (!ticketsMap[id]) {
             ticketsMap[id] = {
               id,
               type: "ticket",
-              name: displayName,
+              name: `E-ticket ${shortId}`,
               entities: { saldo: entityId }
             };
           }
@@ -112,9 +124,7 @@ class TesoCard extends HTMLElement {
         day: "2-digit", month: "2-digit", year: "numeric",
         hour: "2-digit", minute: "2-digit",
       });
-    } catch (e) {
-      return dateStr;
-    }
+    } catch { return dateStr; }
   }
 
   _showQrPopup(qrSrc) {
