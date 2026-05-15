@@ -66,7 +66,7 @@ automation:
 ## Custom teso card
 Er is bij deze integratie ook een custom lovelace card. 
 die is beschikbaar via `https://github.com/nielsbooij/ha-teso-card` In de readme van de kaart wordt beschreven hoe je deze toevoegd. 
-```
+
 ![card-pas](custom_components/teso/images/card-pas.png)
 ![card-eticket](custom_components/teso/images/card-eticket.png)
 ![qr](custom_components/teso/images/card-qrcode.png)
