@@ -64,15 +64,8 @@ automation:
 
 
 ## Custom teso card
-in de www map vind je een custom card die per pas / e-ticked de status weergeeft. 
-bij de e-ticket wordt ook de QR-code getoond wanneer er op het salde geklikt word. 
-
-- plaats de teso-card.js in /www/ 
-- voeg in dasboards bij bronnen de verwijzing /local/teso-card.js toe. 
-- voeg de kaart toe door een custom card te vullen met ;
-
-```yaml
-type: custom:teso-card
+Er is bij deze integratie ook een custom lovelace card. 
+die is beschikbaar via `https://github.com/nielsbooij/ha-teso-card` In de readme van de kaart wordt beschreven hoe je deze toevoegd. 
 ```
 ![card-pas](custom_components/teso/images/card-pas.png)
 ![card-eticket](custom_components/teso/images/card-eticket.png)
